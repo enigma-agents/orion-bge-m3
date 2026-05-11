@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1.7
+#
+# GPU/CUDA variant — bigger image (~7 GB: includes nvidia-cuda-* wheels
+# pulled by torch's default metadata). Use only on hosts with NVIDIA
+# GPUs and the nvidia-container-toolkit installed; otherwise the
+# default Dockerfile (CPU) is faster to build, smaller, and runs anywhere.
+#
+# Build: docker build -f Dockerfile.gpu -t orion-bge-m3:gpu .
+# Run:   docker run --gpus all ... orion-bge-m3:gpu
+
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential zlib1g-dev libffi-dev libssl-dev libxml2-dev \
+    libxslt-dev libjpeg-dev libpng-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY src/ src/
+
+RUN pip install --upgrade pip && pip wheel --wheel-dir=/wheels .
+
+
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+# BGE-M3 weights are pre-fetched on the host (see HF cache or
+# scripts/fetch-bge-m3.sh in the orion-knowledge-base repo) and COPYed
+# into the image. Same pattern as orion-knowledge-base — visible
+# downloads on the host, no docker-build network calls.
+ENV HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --home /app orion \
+ && mkdir -p /opt/orion && chown orion:orion /opt/orion
+
+WORKDIR /app
+COPY --from=builder /wheels /wheels
+RUN pip install --no-index --find-links=/wheels orion-bge-m3 && rm -rf /wheels
+
+COPY --chown=orion:orion bge-m3/ /opt/orion/bge-m3/
+
+USER orion
+EXPOSE 9301
+
+HEALTHCHECK --interval=10s --timeout=2s --start-period=30s --retries=3 \
+  CMD curl -fsS http://localhost:9301/healthz || exit 1
+
+CMD ["uvicorn", "orion_bge_m3.asgi:app", "--host", "0.0.0.0", "--port", "9301", "--loop", "asyncio"]

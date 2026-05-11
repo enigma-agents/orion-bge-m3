@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+.DS_Store
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.log
+
+# Pre-fetched BGE-M3 weights (~2.2 GB). Materialize from HF cache:
+#   cp -rL ~/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/*/. ./bge-m3/
+bge-m3/

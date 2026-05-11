@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orion-bge-m3"
+version = "0.1.0"
+description = "BGE-M3 sparse embedding service for Orion"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "FlagEmbedding>=1.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
