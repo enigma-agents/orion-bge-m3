@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# bge-m3ctl — start/stop/restart the native BGE-M3 (MPS) service via launchd.
+#
+#   bge-m3ctl start | stop | restart | status | logs | install | uninstall
+#
+# The service is a LaunchAgent (runs in your GUI session so Metal/MPS
+# works). Logs: ~/Library/Logs/orion-bge-m3.log
+set -euo pipefail
+
+LABEL="com.orion.bge-m3"
+PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+DOMAIN="gui/$(id -u)"
+TARGET="${DOMAIN}/${LABEL}"
+PORT=9301
+LOG="$HOME/Library/Logs/orion-bge-m3.log"
+
+health() { curl -fsS "http://localhost:${PORT}/healthz" >/dev/null 2>&1; }
+
+case "${1:-}" in
+  start)
+    launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || launchctl kickstart "$TARGET"
+    echo "starting… (model load ~2-5s)"
+    for _ in $(seq 1 30); do health && { echo "up on :$PORT"; exit 0; }; sleep 1; done
+    echo "not healthy yet — check: bge-m3ctl logs"; exit 1
+    ;;
+  stop)
+    launchctl bootout "$TARGET" 2>/dev/null || true
+    echo "stopped"
+    ;;
+  restart)
+    launchctl kickstart -k "$TARGET" 2>/dev/null || {
+      launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null || true; }
+    echo "restarting… (model reload ~2-5s)"
+    for _ in $(seq 1 30); do health && { echo "up on :$PORT"; exit 0; }; sleep 1; done
+    echo "not healthy yet — check: bge-m3ctl logs"; exit 1
+    ;;
+  status)
+    if launchctl print "$TARGET" >/dev/null 2>&1; then
+      state=$(launchctl print "$TARGET" 2>/dev/null | awk -F'= ' '/state = /{print $2; exit}')
+      pid=$(launchctl print "$TARGET" 2>/dev/null | awk -F'= ' '/pid = /{print $2; exit}')
+      echo "loaded (state=${state:-?} pid=${pid:-none})"
+    else
+      echo "not loaded"
+    fi
+    health && echo "health: OK (:$PORT)" || echo "health: DOWN"
+    ;;
+  logs)
+    tail -n "${2:-40}" -f "$LOG"
+    ;;
+  install)
+    launchctl bootstrap "$DOMAIN" "$PLIST" && echo "installed + started"
+    ;;
+  uninstall)
+    launchctl bootout "$TARGET" 2>/dev/null || true
+    echo "unloaded (plist kept at $PLIST)"
+    ;;
+  *)
+    echo "usage: bge-m3ctl {start|stop|restart|status|logs|install|uninstall}"; exit 2
+    ;;
+esac
